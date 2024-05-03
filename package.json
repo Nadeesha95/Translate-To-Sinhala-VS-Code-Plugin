@@ -1,0 +1,44 @@
+{
+  "name": "translate-to-sinhala",
+  "displayName": "Translate To Sinhala",
+  "publisher": "NadeeshaWeerasekara",
+  "description": "Translate to Sinhala is a powerful extension that simplifies language translation. It provides seamless translation capabilities, allowing users to effortlessly translate text from any comment line to Sinhala with just a one click.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.88.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:translate-to-sinhala.translateToSinhala"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "translate-to-sinhala.translateToSinhala",
+        "title": "Translate To Sinhala"
+      }
+    ]
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.6",
+    "@types/node": "18.x",
+    "@types/vscode": "^1.88.0",
+    "@vscode/test-cli": "^0.0.8",
+    "@vscode/test-electron": "^2.3.9",
+    "eslint": "^8.57.0",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "@vscode/vsce": "^2.26.0",
+    "axios": "^1.6.8",
+    "node-fetch": "^3.3.2"
+  }
+}
