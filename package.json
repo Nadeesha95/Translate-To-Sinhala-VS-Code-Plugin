@@ -1,54 +1,71 @@
 {
-    "name": "translate-to-sinhala",
-    "displayName": "Translate To Sinhala",
-    "publisher": "NadeeshaWeerasekara",
-    "description": "Translate to Sinhala is a powerful extension that simplifies language translation. It provides seamless translation capabilities, allowing users to effortlessly translate text from any comment line to Sinhala with just a one click.",
-    "version": "0.0.2",
-    "engines": {
-      "vscode": "^1.88.0"
-    },
-    "categories": [
-      "Other"
+  "name": "translate-to-sinhala",
+  "displayName": "AI Sinhala Code Reviewer",
+  "publisher": "NadeeshaWeerasekara",
+  "icon": "img/large.png",
+  "description": "An AI-powered code analysis tool that provides real-time feedback on code quality, standards, and best practices. Specially designed for developers in Sri Lanka, it offers detailed explanations and suggestions translated into the Sinhala language.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.88.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:javascript",
+    "onLanguage:typescript",
+    "onLanguage:python",
+    "onLanguage:php",
+    "onLanguage:java",
+    "onLanguage:csharp",
+    "onLanguage:go",
+    "onLanguage:html",
+    "onLanguage:css"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Nadeesha95/Translate-To-Sinhala-VS-Code-Plugin"
+  },
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "translate-to-sinhala.analyzeCode",
+        "title": "Analyze Code with AI (Sinhala)"
+      },
+      {
+        "command": "translate-to-sinhala.clearDecorations",
+        "title": "Clear AI Analysis Decorations (Sinhala)"
+      }
     ],
-    "activationEvents": [
-      "*"
-    ],
-    "main": "./extension.js",
-    "contributes": {
-      "commands": [
-        {
-          "command": "translate-to-sinhala.translateToSinhala",
-          "title": "Translate To Sinhala"
-        }
-      ],
-      "menus": {
+    "menus": {
       "editor/context": [
         {
-          "command": "translate-to-sinhala.translateToSinhala",
+          "command": "translate-to-sinhala.analyzeCode",
           "when": "editorLangId == 'javascript' || editorLangId == 'typescript' || editorLangId == 'python' || editorLangId == 'java' || editorLangId == 'go' || editorLangId == 'php'",
           "group": "navigation"
         }
       ]
     }
-    },
-    "scripts": {
-      "lint": "eslint .",
-      "pretest": "npm run lint",
-      "test": "vscode-test"
-    },
-    "devDependencies": {
-      "@types/mocha": "^10.0.6",
-      "@types/node": "18.x",
-      "@types/vscode": "^1.88.0",
-      "@vscode/test-cli": "^0.0.8",
-      "@vscode/test-electron": "^2.3.9",
-      "eslint": "^8.57.0",
-      "typescript": "^5.4.5"
-    },
-    "dependencies": {
-      "@vscode/vsce": "^2.26.0",
-      "axios": "^1.6.8",
-      "node-fetch": "^3.3.2"
-    }
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.6",
+    "@types/node": "18.x",
+    "@types/vscode": "^1.88.0",
+    "@vscode/test-cli": "^0.0.8",
+    "@vscode/test-electron": "^2.3.9",
+    "eslint": "^8.57.0",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "@vscode/vsce": "^2.26.0",
+    "axios": "^1.11.0",
+    "node-fetch": "^3.3.2"
   }
-  
+}

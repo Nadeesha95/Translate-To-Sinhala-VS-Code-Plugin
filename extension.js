@@ -1,266 +1,355 @@
 const vscode = require('vscode');
-const axios = require('axios'); // Import axios for HTTP requests
+const axios =require('axios');
 
-const translationCache = {}; // Cache for translations
+// --- Configuration ---
+const OPENROUTER_API_KEY = '';
+const YOUR_APP_URL = '';
+
+let criticalDecorationType;
+let warningDecorationType;
+let suggestionDecorationType;
+
+let scanningDecorationType;
+
+const DAILY_REQUEST_LIMIT = 10;
+const MAX_LINE_LIMIT = 80;
+
+// Cache for code analysis to avoid re-analyzing unchanged code
+const analysisCache = new Map();
+
+class AiCodeLensProvider {
+    provideCodeLenses(document, token) {
+        const topOfFile = new vscode.Range(0, 0, 0, 0);
+
+        const analyzeCommand = {
+            title: "✅ Analyze Code with AI (Sinhala)",
+            command: "translate-to-sinhala.analyzeCode",
+            arguments: []
+        };
+        const analyzeCodeLens = new vscode.CodeLens(topOfFile, analyzeCommand);
+
+        const clearCommand = {
+            title: "❌ Clear Analysis",
+            command: "translate-to-sinhala.clearDecorations",
+            arguments: []
+        };
+        const clearCodeLens = new vscode.CodeLens(topOfFile, clearCommand);
+
+        return [analyzeCodeLens, clearCodeLens];
+    }
+}
+
 
 async function activate(context) {
-  try {
-    // Register the event listener for active text editor changes
-    vscode.window.onDidChangeActiveTextEditor(async (editor) => {
-      if (editor) {
-        const result = await vscode.window.showInformationMessage('Do you want to translate To Sinhala?', 'Yes', 'No');
-        if (result === 'Yes') {
-          await performTranslation();
-        }
-      }
-    });
-
-    // Register the command that can be invoked via the command palette or context menu
-    let disposable = vscode.commands.registerCommand('translate-to-sinhala.translateToSinhala', async () => {
-      await performTranslation();
-    });
-
-    context.subscriptions.push(disposable);
-  } catch (error) {
-    console.error('Error during activation:', error);
-    vscode.window.showErrorMessage('Failed to fetch translation.');
-  }
-}
-
-exports.activate = activate;
-
-async function performTranslation() {
-  // Pre-fetch translations for common messages
-  const messages = [
-    'Keep lines of code to a maximum of 80-100 characters',
-    ' ← Function should not start with spaces',
-    ' ← Variable names should be in camelCase',
-    'Comment : ',
-    ' ← Remove unwanted space'
-  ];
-
-  // Fetch translations for each message
-  for (const message of messages) {
-    translationCache[message] = await getTranslatedText(message, 'en', 'si');
-  }
-
-  // Run codeInspect with the translated text
-  codeInspect(translationCache);
-}
-
-async function codeInspect(translations) {
-  const editor = vscode.window.activeTextEditor;
-  if (editor) {
-    const document = editor.document;
-    const text = document.getText();
-    const lines = text.split('\n');
-
-    // Create decoration types for lines exceeding 80 and 100 characters
-    const decorationType80 = vscode.window.createTextEditorDecorationType({
-      backgroundColor: 'rgba(255,165,0,0.3)', // Orange background for 80-100 characters
-      after: {
-        contentText: ` ← ${translations['Keep lines of code to a maximum of 80-100 characters']}`,
-        color: 'rgba(255,165,0,1)',
-        margin: '0 0 0 20px'
-      }
-    });
-    const decorationType100 = vscode.window.createTextEditorDecorationType({
-      backgroundColor: 'rgba(255,0,0,0.3)', // Red background for >100 characters
-      after: {
-        contentText: ` ← ${translations['Keep lines of code to a maximum of 80-100 characters']}`,
-        color: 'rgba(255,0,0,1)',
-        margin: '0 0 0 20px'
-      }
-    });
-
-    // Create a decoration type for function definitions with leading spaces
-    const decorationTypeFunction = vscode.window.createTextEditorDecorationType({
-      borderWidth: '2px',
-      borderStyle: 'solid',
-      borderColor: 'rgba(0,0,255,0.5)', // Blue border for leading spaces before function definitions
-      after: {
-        contentText: ` ← ${translations[' ← Function should not start with spaces']}`,
-        color: 'rgba(0,0,255,1)',
-        margin: '0 0 0 20px'
-      }
-    });
-
-    // Create a decoration type for improper variable names
-    const decorationTypeVariable = vscode.window.createTextEditorDecorationType({
-      borderWidth: '2px',
-      borderStyle: 'dotted',
-      borderColor: 'rgba(255,0,255,0.5)', // Pink border for improper variable names
-      after: {
-        contentText: ` ← ${translations[' ← Variable names should be in camelCase']}`,
-        color: 'rgba(255,0,255,1)',
-        margin: '0 0 0 20px'
-      }
-    });
-
-    // Create a decoration type for translated comments
-    const decorationTypeComment = vscode.window.createTextEditorDecorationType({
-      backgroundColor: 'rgba(0,255,0,0.2)', // Light green background for translated comments
-      after: {
-        contentText: ` ← ${translations['Comment : ']}`,
-        color: 'rgba(0,255,0,1)',
-        margin: '0 0 0 20px'
-      }
-    });
-
-    // Create a decoration type for unwanted spaces
-    const decorationTypeUnwantedSpace = vscode.window.createTextEditorDecorationType({
-      borderWidth: '2px',
-      borderStyle: 'solid',
-      borderColor: 'rgba(255,69,0,0.5)', // OrangeRed border for unwanted spaces
-      after: {
-        contentText: ` ← ${translations[' ← Remove unwanted space']}`,
-        color: 'rgba(255,69,0,1)',
-        margin: '0 0 0 20px'
-      }
-    });
-
-    const decorations80 = [];
-    const decorations100 = [];
-    const decorationFunctions = [];
-    const decorationVariables = [];
-    const decorationComments = [];
-    const decorationUnwantedSpaces = [];
-
-    // Regular expressions for function definitions in various languages
-    const functionRegexes = [
-      /^\s*function\s/,         // JavaScript, PHP
-      /^\s*def\s/,              // Python
-      /^\s*(public|private|protected)?\s*(static\s+)?\w+\s+\w+\s*\(.*\)\s*\{/, // Java, C#
-      /^\s*func\s+/             // Go
-    ];
-
-    // Regular expression for variable names
-    const variableRegex = /\b(?:var|let|const|int|String|boolean|double|float|char|long)\s+([A-Z_][\w]*)/g;
-
-    // Regular expression for comment lines
-    const commentRegexes = [
-      /\/\/.*/,   // JavaScript, Java, Go
-      /#.*/,      // Python, Ruby
-      /\/\*[\s\S]*?\*\//, // Java, JavaScript
-      /\/\*\*[\s\S]*?\*\// // JavaDoc
-    ];
-
-    lines.forEach((line, index) => {
-      if (line.length > 100) {
-        const startPos = new vscode.Position(index, 0);
-        const endPos = new vscode.Position(index, line.length);
-        const decoration = { range: new vscode.Range(startPos, endPos) };
-        decorations100.push(decoration);
-
-      } else if (line.length > 80) {
-        const startPos = new vscode.Position(index, 0);
-        const endPos = new vscode.Position(index, line.length);
-        const decoration = { range: new vscode.Range(startPos, endPos) };
-        decorations80.push(decoration);
-      }
-
-      // Check for function definitions with leading spaces
-      for (const regex of functionRegexes) {
-        if (regex.test(line)) {
-          const leadingSpaces = line.match(/^\s*/)[0];
-          if (leadingSpaces.length > 0) {
-            const startPos = new vscode.Position(index, 0);
-            const endPos = new vscode.Position(index, line.length);
-            const decoration = { range: new vscode.Range(startPos, endPos) };
-            decorationFunctions.push(decoration);
-            break;
-          }
-        }
-      }
-
-      // Check for improper variable names
-      let match;
-      while ((match = variableRegex.exec(line)) !== null) {
-        const startPos = new vscode.Position(index, match.index);
-        const endPos = new vscode.Position(index, match.index + match[0].length);
-        const decoration = { range: new vscode.Range(startPos, endPos) };
-        decorationVariables.push(decoration);
-      }
-
-      // Check for comment lines and translate them
-      for (const regex of commentRegexes) {
-        if (regex.test(line)) {
-          const startPos = new vscode.Position(index, 0);
-          const endPos = new vscode.Position(index, line.length);
-          const decoration = { range: new vscode.Range(startPos, endPos) };
-          decorationComments.push(decoration);
-          translateAndShowComment(line, index, translations);
-          break;
-        }
-      }
-
-
-
-// Check for trailing spaces
-if (line.match(/\s{2,}$/)) {
-  const trailingSpaces = line.match(/\s{2,}$/)[0];
-  const startPos = new vscode.Position(index, line.length - trailingSpaces.length);
-  const endPos = new vscode.Position(index, line.length);
-  const decoration = { range: new vscode.Range(startPos, endPos) };
-  decorationUnwantedSpaces.push(decoration);
-}
-    });
-
-    // Apply decorations
-    editor.setDecorations(decorationType80, decorations80);
-    editor.setDecorations(decorationType100, decorations100);
-    editor.setDecorations(decorationTypeFunction, decorationFunctions);
-    editor.setDecorations(decorationTypeVariable, decorationVariables);
-    editor.setDecorations(decorationTypeComment, decorationComments);
-    editor.setDecorations(decorationTypeUnwantedSpace, decorationUnwantedSpaces);
-  }
-}
-
-async function translateAndShowComment(commentLine, lineIndex, translations) {
-  const translatedComment = await getTranslatedText(commentLine, 'en', 'si');
-  const editor = vscode.window.activeTextEditor;
-  if (editor) {
-    const startPos = new vscode.Position(lineIndex, 0);
-    const endPos = new vscode.Position(lineIndex, commentLine.length);
-    const decoration = {
-      range: new vscode.Range(startPos, endPos),
-      hoverMessage: translatedComment
+    
+    const createGutterIcon = (color) => {
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="${color}" /></svg>`;
+        return vscode.Uri.parse(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`);
     };
-    // Apply decoration with translated comment as hover message
-    editor.setDecorations(
-      vscode.window.createTextEditorDecorationType({
-        backgroundColor: 'rgba(0,255,0,0.2)', // Light green background for translated comments
+
+    const neutralTextColor = 'rgba(180, 180, 180, 0.9)';
+
+    criticalDecorationType = vscode.window.createTextEditorDecorationType({
+        gutterIconPath: createGutterIcon('rgba(255, 0, 0, 0.7)'),
+        borderWidth: '0 0 1px 0',
+        borderStyle: 'solid',
+        borderColor: 'rgba(255, 0, 0, 0.7)',
         after: {
-          contentText: ` ← ${translations['Comment : ']}${translatedComment}`,
-          color: 'rgba(0,255,0,1)',
-          margin: '0 0 0 20px'
+            margin: '0 0 0 1.5em',
+            color: neutralTextColor
         }
-      }),
-      [decoration]
-    );
-  }
+    });
+
+    warningDecorationType = vscode.window.createTextEditorDecorationType({
+        gutterIconPath: createGutterIcon('rgba(255, 165, 0, 0.7)'),
+        borderWidth: '0 0 1px 0',
+        borderStyle: 'dotted',
+        borderColor: 'rgba(255, 165, 0, 0.7)',
+        after: {
+            margin: '0 0 0 1.5em',
+            color: neutralTextColor
+        }
+    });
+
+    suggestionDecorationType = vscode.window.createTextEditorDecorationType({
+        gutterIconPath: createGutterIcon('rgba(0, 150, 255, 0.6)'),
+        borderWidth: '0 0 1px 0',
+        borderStyle: 'dotted',
+        borderColor: 'rgba(0, 150, 255, 0.6)',
+        after: {
+            margin: '0 0 0 1.5em',
+            color: neutralTextColor
+        }
+    });
+
+
+    scanningDecorationType = vscode.window.createTextEditorDecorationType({
+        backgroundColor: 'rgba(0, 150, 255, 0.1)',
+        isWholeLine: true,
+    });
+
+
+    try {
+        const codeLensProvider = new AiCodeLensProvider();
+        const disposableCodeLens = vscode.languages.registerCodeLensProvider({ pattern: "**/*" }, codeLensProvider);
+        context.subscriptions.push(disposableCodeLens);
+
+       
+        const analyzeCommand = vscode.commands.registerCommand('translate-to-sinhala.analyzeCode', () => analyzeAndDecorate(context));
+
+        const clearCommand = vscode.commands.registerCommand('translate-to-sinhala.clearDecorations', () => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor) {
+                editor.setDecorations(criticalDecorationType, []);
+                editor.setDecorations(warningDecorationType, []);
+                editor.setDecorations(suggestionDecorationType, []);
+                vscode.window.setStatusBarMessage('AI analysis cleared.', 3000);
+            }
+        });
+
+        context.subscriptions.push(analyzeCommand, clearCommand);
+
+    } catch (error) {
+        console.error('Error during activation:', error);
+        vscode.window.showErrorMessage('Failed to activate the AI Code Analyzer extension.');
+    }
 }
 
-async function getTranslatedText(textToTranslate, sourceLanguage, targetLanguage) {
-  if (translationCache[textToTranslate]) {
-    return translationCache[textToTranslate];
-  }
+async function analyzeAndDecorate(context) {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) return;
 
-  const translationAPI = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(textToTranslate)}&langpair=${sourceLanguage}|${targetLanguage}`;
-  try {
-    const response = await axios.get(translationAPI);
-    const translatedText = response.data.responseData.translatedText;
-    translationCache[textToTranslate] = translatedText;
-    return translatedText;
-  } catch (error) {
-    console.error('Error fetching translation:', error);
-    return textToTranslate; // Fallback to the original text in case of an error
-  }
+    const usageData = context.globalState.get('usageData', { count: 0, date: new Date().toDateString() });
+    const today = new Date().toDateString();
+
+    if (usageData.date !== today) {
+        usageData.date = today;
+        usageData.count = 0;
+    }
+
+    if (usageData.count >= DAILY_REQUEST_LIMIT) {
+        vscode.window.showErrorMessage(`You have reached the daily limit of ${DAILY_REQUEST_LIMIT} requests. Please try again tomorrow.`);
+        return;
+    }
+
+    const document = editor.document;
+    const selection = editor.selection;
+    const isSelection = !selection.isEmpty;
+    
+    const fullCode = document.getText();
+    const analysisRange = isSelection ? selection : new vscode.Range(document.positionAt(0), document.positionAt(fullCode.length));
+
+    const lineCount = analysisRange.end.line - analysisRange.start.line + 1;
+    if (lineCount > MAX_LINE_LIMIT) {
+        vscode.window.showErrorMessage(`The selected code is too long (${lineCount} lines). Please select a block of code with ${MAX_LINE_LIMIT} lines or fewer.`);
+        return;
+    }
+    
+    usageData.count++;
+    await context.globalState.update('usageData', usageData);
+
+    editor.setDecorations(criticalDecorationType, []);
+    editor.setDecorations(warningDecorationType, []);
+    editor.setDecorations(suggestionDecorationType, []);
+
+    let currentLine = analysisRange.start.line;
+    const endLine = analysisRange.end.line;
+    const animationInterval = setInterval(() => {
+        const range = document.lineAt(currentLine).range;
+        editor.setDecorations(scanningDecorationType, [range]);
+        currentLine++;
+        if (currentLine > endLine) {
+            currentLine = analysisRange.start.line;
+        }
+    }, 100);
+
+    await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: "AI Code Analysis",
+        cancellable: false
+    }, async (progress) => {
+        try {
+            progress.report({ message: "Analyzing code with AI..." });
+            
+            const issues = await getAIReviewAndTranslation(fullCode, isSelection ? analysisRange : null);
+
+            clearInterval(animationInterval);
+            editor.setDecorations(scanningDecorationType, []);
+
+            if (!Array.isArray(issues) || issues.length === 0) {
+                vscode.window.showInformationMessage('AI analysis complete. No issues found.');
+                return;
+            }
+
+            progress.report({ message: "Applying decorations..." });
+            applyDecorations(editor, issues);
+
+            const summary = createSummary(issues);
+            const remainingRequests = DAILY_REQUEST_LIMIT - usageData.count;
+            vscode.window.showInformationMessage(`${summary} (Daily requests remaining: ${remainingRequests})`);
+
+        } catch (error) {
+            clearInterval(animationInterval);
+            editor.setDecorations(scanningDecorationType, []);
+            console.error('Error during analysis and decoration:', error);
+            vscode.window.showErrorMessage('Failed to get AI code analysis.');
+        }
+    });
+}
+
+async function getAIReviewAndTranslation(code, selectionRange) {
+
+    let promptIntro = `As an expert code reviewer, analyze the following code. For each issue found, provide:
+        1. "line": The absolute line number from the file.
+        2. "codeSnippet": The exact, complete line of code where the issue occurs.
+        3. "issue": A detailed English description of the problem and why it's an issue.
+        4. "sinhalaIssue": A translation of the detailed description into Sinhala.
+        5. "severity": Classify the issue's severity as "Critical", "Warning", or "Suggestion".
+           - "Critical": Security vulnerabilities (SQL Injection, XSS), code that will crash, data loss risks.
+           - "Warning": Deprecated code, potential bugs, bad practices (e.g., loose comparisons).
+           - "Suggestion": Stylistic issues, naming conventions, line length, minor improvements.`;
+    
+    if (selectionRange) {
+        promptIntro += `\n\nIMPORTANT: Focus your analysis ONLY on the lines between line ${selectionRange.start.line + 1} and line ${selectionRange.end.line + 1}.`;
+    }
+
+    const prompt = `${promptIntro}
+
+        Your response MUST be a valid JSON array of objects. It is essential to return all issues found. If no issues, return an empty array [].
+        
+        Example:
+        [
+            {
+                "line": 15,
+                "codeSnippet": "$query = \\"SELECT * FROM users WHERE id = \\" . $user_id;",
+                "issue": "This line is vulnerable to SQL injection because it directly includes user input in the query string. A malicious user could provide input that alters the query's logic.",
+                "sinhalaIssue": "මෙම රේඛාව SQL එන්නත් කිරීමේ අවදානමට ලක්ව ඇත, මන්ද එය විමසුම් තන්තුවට පරිශීලක ආදානය සෘජුවම ඇතුළත් කරයි. ද්වේශසහගත පරිශීලකයෙකුට විමසුමේ තර්කනය වෙනස් කරන ආදානයක් සැපයිය හැකිය.",
+                "severity": "Critical"
+            }
+        ]
+
+        Here is the complete file to analyze:
+        \`\`\`
+        ${code}
+        \`\`\`
+    `;
+
+    try {
+        const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+            model: 'deepseek/deepseek-chat-v3-0324:free',
+            messages: [{ role: 'user', content: prompt }],
+            response_format: { type: "json_object" }
+        }, {
+            headers: {
+                'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+                'HTTP-Referer': YOUR_APP_URL,
+                'X-Title': 'My AI App'
+            }
+        });
+
+        const content = response.data.choices[0].message.content;
+        console.log("Raw AI Response Content:", content);
+        if (!content) return null;
+
+        let parsedData;
+        try {
+            const jsonMatch = content.match(/```json\n([\s\S]*?)\n```|({[\s\S]*})|(\[[\s\S]*\])/);
+            const jsonString = jsonMatch ? (jsonMatch[1] || jsonMatch[2] || jsonMatch[3]) : content;
+            parsedData = JSON.parse(jsonString);
+        } catch (e) {
+            console.error("Failed to parse JSON from AI response.", e);
+            return null;
+        }
+
+        if (Array.isArray(parsedData)) return parsedData;
+        if (typeof parsedData === 'object' && parsedData !== null) {
+            const arrayKey = Object.keys(parsedData).find(k => Array.isArray(parsedData[k]));
+            if (arrayKey) return parsedData[arrayKey];
+            if (parsedData.line && parsedData.issue) return [parsedData];
+        }
+        return null;
+    } catch (error) {
+        console.error('AI API Error:', error.response ? error.response.data : error.message);
+        vscode.window.showErrorMessage('Failed to communicate with the AI model. Check the debug console.');
+        return null;
+    }
+}
+
+function applyDecorations(editor, issues) {
+    const criticalDecorations = [];
+    const warningDecorations = [];
+    const suggestionDecorations = [];
+
+    const severityMap = {
+        "Critical": { decorations: criticalDecorations },
+        "Warning": { decorations: warningDecorations },
+        "Suggestion": { decorations: suggestionDecorations }
+    };
+
+    for (const item of issues) {
+
+        let foundLineIndex = -1;
+        const aiLine = item.line - 1;
+
+        if (aiLine >= 0 && aiLine < editor.document.lineCount && item.codeSnippet) {
+            const lineText = editor.document.lineAt(aiLine).text.trim();
+
+            if (lineText.includes(item.codeSnippet.trim()) || item.codeSnippet.trim().includes(lineText)) {
+                foundLineIndex = aiLine;
+            }
+        }
+
+        if (foundLineIndex === -1 && item.codeSnippet) {
+             for (let i = 0; i < editor.document.lineCount; i++) {
+                const lineText = editor.document.lineAt(i).text;
+                if (lineText.trim() === item.codeSnippet.trim()) {
+                    foundLineIndex = i;
+                    break;
+                }
+            }
+        }
+
+        if (foundLineIndex === -1) {
+            console.warn(`Could not reliably find line for issue: "${item.issue}"`);
+            continue;
+        }
+
+        const line = editor.document.lineAt(foundLineIndex);
+        const range = new vscode.Range(foundLineIndex, line.firstNonWhitespaceCharacterIndex, foundLineIndex, line.range.end.character);
+        
+        const severityInfo = severityMap[item.severity] || severityMap["Suggestion"];
+
+        const decoration = {
+            range,
+            hoverMessage: `**${item.severity} Issue:**\n\n${item.issue}\n\n---\n\n**සිංහල පරිවර්තනය:**\n\n${item.sinhalaIssue}`,
+            renderOptions: {
+                after: {
+                    contentText: `(L${foundLineIndex + 1}) ${item.sinhalaIssue}`
+                }
+            }
+        };
+        severityInfo.decorations.push(decoration);
+    }
+
+    editor.setDecorations(criticalDecorationType, criticalDecorations);
+    editor.setDecorations(warningDecorationType, warningDecorations);
+    editor.setDecorations(suggestionDecorationType, suggestionDecorations);
+}
+
+function createSummary(issues) {
+    const counts = { Critical: 0, Warning: 0, Suggestion: 0 };
+    for (const issue of issues) {
+        if (counts[issue.severity] !== undefined) {
+            counts[issue.severity]++;
+        }
+    }
+    const parts = Object.entries(counts)
+        .filter(([, count]) => count > 0)
+        .map(([severity, count]) => `${count} ${severity}`);
+
+    return `Analysis Complete: Found ${parts.join(', ')}.`;
 }
 
 function deactivate() {}
 
-module.exports = {
-  activate,
-  deactivate
-};
+module.exports = { activate, deactivate };
