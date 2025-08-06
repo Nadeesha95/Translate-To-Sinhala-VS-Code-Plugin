@@ -2,19 +2,22 @@ const vscode = require('vscode');
 const axios =require('axios');
 
 // --- Configuration ---
-const OPENROUTER_API_KEY = '';
-const YOUR_APP_URL = '';
+
+const FIREBASE_FUNCTION_URL = 'https://translate-bmauiqdhpa-uc.a.run.app';
+
 
 let criticalDecorationType;
 let warningDecorationType;
 let suggestionDecorationType;
 
+
 let scanningDecorationType;
 
-const DAILY_REQUEST_LIMIT = 10;
-const MAX_LINE_LIMIT = 80;
 
-// Cache for code analysis to avoid re-analyzing unchanged code
+const DAILY_REQUEST_LIMIT = 100;
+const MAX_LINE_LIMIT = 10;
+
+
 const analysisCache = new Map();
 
 class AiCodeLensProvider {
@@ -40,8 +43,9 @@ class AiCodeLensProvider {
 }
 
 
+
 async function activate(context) {
-    
+
     const createGutterIcon = (color) => {
         const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="${color}" /></svg>`;
         return vscode.Uri.parse(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`);
@@ -49,11 +53,12 @@ async function activate(context) {
 
     const neutralTextColor = 'rgba(180, 180, 180, 0.9)';
 
+
     criticalDecorationType = vscode.window.createTextEditorDecorationType({
         gutterIconPath: createGutterIcon('rgba(255, 0, 0, 0.7)'),
         borderWidth: '0 0 1px 0',
         borderStyle: 'solid',
-        borderColor: 'rgba(255, 0, 0, 0.7)',
+        borderColor: 'rgba(255, 0, 0, 0.7)', 
         after: {
             margin: '0 0 0 1.5em',
             color: neutralTextColor
@@ -64,7 +69,7 @@ async function activate(context) {
         gutterIconPath: createGutterIcon('rgba(255, 165, 0, 0.7)'),
         borderWidth: '0 0 1px 0',
         borderStyle: 'dotted',
-        borderColor: 'rgba(255, 165, 0, 0.7)',
+        borderColor: 'rgba(255, 165, 0, 0.7)', 
         after: {
             margin: '0 0 0 1.5em',
             color: neutralTextColor
@@ -94,7 +99,7 @@ async function activate(context) {
         const disposableCodeLens = vscode.languages.registerCodeLensProvider({ pattern: "**/*" }, codeLensProvider);
         context.subscriptions.push(disposableCodeLens);
 
-       
+
         const analyzeCommand = vscode.commands.registerCommand('translate-to-sinhala.analyzeCode', () => analyzeAndDecorate(context));
 
         const clearCommand = vscode.commands.registerCommand('translate-to-sinhala.clearDecorations', () => {
@@ -115,10 +120,12 @@ async function activate(context) {
     }
 }
 
+
 async function analyzeAndDecorate(context) {
     const editor = vscode.window.activeTextEditor;
     if (!editor) return;
 
+    // --- Daily Rate Limiting Check ---
     const usageData = context.globalState.get('usageData', { count: 0, date: new Date().toDateString() });
     const today = new Date().toDateString();
 
@@ -139,6 +146,7 @@ async function analyzeAndDecorate(context) {
     const fullCode = document.getText();
     const analysisRange = isSelection ? selection : new vscode.Range(document.positionAt(0), document.positionAt(fullCode.length));
 
+    // --- Line Limit Check ---
     const lineCount = analysisRange.end.line - analysisRange.start.line + 1;
     if (lineCount > MAX_LINE_LIMIT) {
         vscode.window.showErrorMessage(`The selected code is too long (${lineCount} lines). Please select a block of code with ${MAX_LINE_LIMIT} lines or fewer.`);
@@ -148,9 +156,11 @@ async function analyzeAndDecorate(context) {
     usageData.count++;
     await context.globalState.update('usageData', usageData);
 
+
     editor.setDecorations(criticalDecorationType, []);
     editor.setDecorations(warningDecorationType, []);
     editor.setDecorations(suggestionDecorationType, []);
+
 
     let currentLine = analysisRange.start.line;
     const endLine = analysisRange.end.line;
@@ -197,8 +207,8 @@ async function analyzeAndDecorate(context) {
     });
 }
 
-async function getAIReviewAndTranslation(code, selectionRange) {
 
+async function getAIReviewAndTranslation(code, selectionRange) {
     let promptIntro = `As an expert code reviewer, analyze the following code. For each issue found, provide:
         1. "line": The absolute line number from the file.
         2. "codeSnippet": The exact, complete line of code where the issue occurs.
@@ -235,17 +245,11 @@ async function getAIReviewAndTranslation(code, selectionRange) {
     `;
 
     try {
-        const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-            model: 'deepseek/deepseek-chat-v3-0324:free',
-            messages: [{ role: 'user', content: prompt }],
-            response_format: { type: "json_object" }
-        }, {
-            headers: {
-                'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-                'HTTP-Referer': YOUR_APP_URL,
-                'X-Title': 'My AI App'
-            }
+
+        const response = await axios.post(FIREBASE_FUNCTION_URL, {
+            prompt: prompt 
         });
+
 
         const content = response.data.choices[0].message.content;
         console.log("Raw AI Response Content:", content);
@@ -269,8 +273,8 @@ async function getAIReviewAndTranslation(code, selectionRange) {
         }
         return null;
     } catch (error) {
-        console.error('AI API Error:', error.response ? error.response.data : error.message);
-        vscode.window.showErrorMessage('Failed to communicate with the AI model. Check the debug console.');
+        console.error('Firebase Function Error:', error.response ? error.response.data : error.message);
+        vscode.window.showErrorMessage('Failed to communicate with the analysis service. Check the debug console.');
         return null;
     }
 }
@@ -290,6 +294,7 @@ function applyDecorations(editor, issues) {
 
         let foundLineIndex = -1;
         const aiLine = item.line - 1;
+
 
         if (aiLine >= 0 && aiLine < editor.document.lineCount && item.codeSnippet) {
             const lineText = editor.document.lineAt(aiLine).text.trim();
@@ -335,6 +340,7 @@ function applyDecorations(editor, issues) {
     editor.setDecorations(warningDecorationType, warningDecorations);
     editor.setDecorations(suggestionDecorationType, suggestionDecorations);
 }
+
 
 function createSummary(issues) {
     const counts = { Critical: 0, Warning: 0, Suggestion: 0 };

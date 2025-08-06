@@ -4,7 +4,7 @@
   "publisher": "NadeeshaWeerasekara",
   "icon": "img/large.png",
   "description": "An AI-powered code analysis tool that provides real-time feedback on code quality, standards, and best practices. Specially designed for developers in Sri Lanka, it offers detailed explanations and suggestions translated into the Sinhala language.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "license": "MIT",
   "engines": {
     "vscode": "^1.88.0"
